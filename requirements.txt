@@ -1,0 +1,11 @@
+tqdm
+tornado==6.1.0
+descartes
+geopandas
+ee
+eemont
+geemap
+google-api-python-client
+pyCrypto
+oauth2client
+erthengine-api
