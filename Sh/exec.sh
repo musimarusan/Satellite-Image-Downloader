@@ -1,6 +1,6 @@
 #! /bin/sh
 
-HOME=/home/hiroakit/Research/devel/Satellite-Image-Downloader/src
+HOME=../Src
 
 MODULE=${HOME}/S2ImageDownloader.py
 
