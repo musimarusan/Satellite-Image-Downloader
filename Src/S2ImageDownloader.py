@@ -4,6 +4,7 @@
 
 import sys
 import os
+import datetime
 import pandas as pd
 from io import BytesIO
 import ee 
@@ -11,15 +12,10 @@ from google.auth import compute_engine, impersonated_credentials
 from google.cloud import storage
 from dateutil.parser import parse
 from config import (
-    SERVICE_ACCOUNT
+    SERVICE_ACCOUNT,
+    TIMECARD,
+    CSR
     )
-
-
-
-# processing for credential
-credentials    = ee.ServiceAccountCredentials( SERVICE_ACCOUNT, '.private-key.json')
-storage_client = storage.Client.from_service_account_json('.private-key.json')
-ee.Initialize(credentials)
 
 
 # function : make Cloud Mask using QA60
@@ -38,28 +34,32 @@ def cloudMasking(image):
 # scale(in)       : spatial resolution
 # fileFormat(in)  : file format of output imagery
 # bucket          : GSC bucket name for file output
-def ImageExport(image, description, scale, region, fileFormat, bucket):
+def ImageExport(image, description, scale, region, fileFormat, bucket, band):
+    fileNamePrefix = band+'/'+description # output tif file name
+    
     task = ee.batch.Export.image.toCloudStorage(**{
         'image': image,
         'description': description,
         'scale': scale,
         'region': region,
+#        'csr' : CSR,
         'fileFormat': fileFormat,
         'bucket': bucket,
+        'fileNamePrefix' : fileNamePrefix,
         'formatOptions': {'cloudOptimized': True}        
     })
     task.start()
 
 # function :
 # imageList(in) : list of image collection
-def ExportIteration(imageList, scale_in, bucket_in):
+def ExportIteration(imageList, scale_in, bucket_in, band_in):
 
     # get file list from bucket to avoid fetching existed image.
-    imgList = []
+    dirList = []
     bucket = storage_client.bucket(bucket_in)
     blobs  = storage_client.list_blobs(bucket)
     for blob in blobs:
-        imgList.append(blob.name)
+        dirList.append(blob.name)
 
     for ii in range(imageList.size().getInfo()):
         image          = ee.Image(imageList.get(ii))
@@ -68,13 +68,13 @@ def ExportIteration(imageList, scale_in, bucket_in):
         region_in      = region.getInfo()['coordinates']
         fileformat_in  = 'GeoTIFF'
 
-        filename = description_in + '.tif'
-
+        filename = band_in + '/' +description_in + '.tif'
+        
         # get image that has not fetched.
-        if filename in imgList:
+        if filename in dirList:
             print(ii, description_in, 'already exists.')
         else:
-            ImageExport(image_in, description_in, scale_in, region_in, fileformat_in, bucket_in)
+            ImageExport(image_in, description_in, scale_in, region_in, fileformat_in, bucket_in, band_in)
             print(ii, description_in, 'was created.')
             
     print('finish:', bucket_in)
@@ -93,9 +93,8 @@ def bucket_exisitence_comfirmation(storage_client_in, bucket_name_in):
         print('newly created', bucket_name_in)
 
 def directory_existense_confirmation(storage_client_in, bucket_name_in, band_in):
-    file_name = 'dummy.txt' 
-    destination_blob_name = band_in + '/dummy.txt'
-    
+    file_name = '../Const/' + TIMECARD 
+    destination_blob_name = band_in + '/' + TIMECARD    
     bucket = storage_client.get_bucket(bucket_name)
     blob = bucket.blob(destination_blob_name)
     blob.upload_from_filename(file_name)
@@ -120,25 +119,36 @@ if __name__ == '__main__':
         print('  arg3: SDATE: ex)2022-01-01')
         print('  arg4: EDATE: ex)2022-12-31')
         quit()
-            
+
+
+    # create timecard
+    f = open('../Const/'+ TIMECARD, 'w')   
+    dt_now = datetime.datetime.now()
+    f.write(str(dt_now)+'\n')
+    
+    # processing for credential
+    credentials    = ee.ServiceAccountCredentials( SERVICE_ACCOUNT, '.private-key.json')
+    storage_client = storage.Client.from_service_account_json('.private-key.json')
+    ee.Initialize(credentials)
+
     # AOI definition
-    region=ee.Geometry.Rectangle([130.435266,32.942276,130.497408,32.898326])
+    region=ee.Geometry.Rectangle([130.387545,33.012406, 130.497408,32.898326])
         
     # get image cpllection
     S2_Image  = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED').filterBounds(region).filterDate(parse(SDATE),parse(EDATE)).map(cloudMasking).select([BAND])
     ImageList = S2_Image.toList(300)
         
     # comfirm bucket existense
-    # bucket_name = 's2_ms_' + BAND.lower()
     bucket_name = 'musi_sentinel2_imagery'
     bucket_exisitence_comfirmation(storage_client, bucket_name)
-
-
+        
     # comfirm directory exisitense
     directory_existense_confirmation(storage_client, bucket_name, BAND)
-    
+        
     # image creation
-    #ExportIteration(ImageList, SCALE, bucket_name, BAND)
+    ExportIteration(ImageList, SCALE, bucket_name, BAND)
         
     # end processing
     print('Program sucessfully finished.')
+
+        
