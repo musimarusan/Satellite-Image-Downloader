@@ -1,0 +1,7 @@
+tqdm
+tornado==6.1.0
+descartes
+geopandas
+ee
+eemont
+geemap
