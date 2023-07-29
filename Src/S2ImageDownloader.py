@@ -5,7 +5,9 @@
 import sys
 import os
 import datetime
+import numpy as np
 import pandas as pd
+import geopandas as gpd
 from io import BytesIO
 import ee 
 from google.auth import compute_engine, impersonated_credentials
@@ -16,6 +18,45 @@ from config import (
     TIMECARD,
     CSR
     )
+
+
+#
+def check_crs(gdf):
+    if gdf.crs is None:
+        return False
+    if gdf.crs.name == 'Undefined geographic SRS':
+        return False
+    return True
+
+# get geometry
+def get_geom_rect(polygon_in):
+
+    # open and check polygon
+    gdf = gpd.read_file(polygon_in)
+    assert check_crs(gdf), 'CRS os not defined.'
+
+    # extract polygon
+    s = str(gdf['geometry'][0])
+    s = s.replace('MULTIPOLYGON ','')
+    s = s.replace('(((',' ')
+    s = s.replace(')))','')
+    lonlat = s.split(',')
+
+    nplonlat = np.array(lonlat)
+
+    lon = []
+    lat = []
+    for coord in lonlat:
+        tmpcoord = coord.split(' ')
+        lon.append(tmpcoord[1])
+        lat.append(tmpcoord[2])
+
+    minLon = float(min(lon))
+    maxLat = float(max(lat))
+    maxLon = float(max(lon))
+    minLat = float(min(lat))
+    
+    return minLon, maxLat, maxLon, minLat
 
 
 # function : make Cloud Mask using QA60
@@ -35,7 +76,7 @@ def cloudMasking(image):
 # fileFormat(in)  : file format of output imagery
 # bucket          : GSC bucket name for file output
 def ImageExport(image, description, scale, region, fileFormat, bucket, band):
-    fileNamePrefix = band+'/'+description # output tif file name
+    fileNamePrefix = band+'/'+description +'_' + band  # output tif file name
     
     task = ee.batch.Export.image.toCloudStorage(**{
         'image': image,
@@ -61,6 +102,7 @@ def ExportIteration(imageList, scale_in, bucket_in, band_in):
     for blob in blobs:
         dirList.append(blob.name)
 
+    # ImageCollection loop
     for ii in range(imageList.size().getInfo()):
         image          = ee.Image(imageList.get(ii))
         image_in       = image.reproject(crs='EPSG:4326',scale=10)
@@ -68,18 +110,19 @@ def ExportIteration(imageList, scale_in, bucket_in, band_in):
         region_in      = region.getInfo()['coordinates']
         fileformat_in  = 'GeoTIFF'
 
-        filename = band_in + '/' +description_in + '.tif'
+        filename = band_in + '/' +description_in + '_' + band_in + '.tif' # target file name. not used for file output
         
         # get image that has not fetched.
         if filename in dirList:
-            print(ii, description_in, 'already exists.')
+            print(ii, filename, 'already exists.')
         else:
             ImageExport(image_in, description_in, scale_in, region_in, fileformat_in, bucket_in, band_in)
-            print(ii, description_in, 'was created.')
+            print(ii, filename, 'has been created.')
             
     print('finish:', bucket_in)
 
 
+#
 def bucket_exisitence_comfirmation(storage_client_in, bucket_name_in):
     gcs_buckets = storage_client_in.list_buckets()
     gcs_bucket_list = []
@@ -87,11 +130,12 @@ def bucket_exisitence_comfirmation(storage_client_in, bucket_name_in):
         gcs_bucket_list.append(blob.name)
 
     if bucket_name_in in gcs_bucket_list:
-        print(bucket_name_in, 'already exists.')
+        print('Bucket ', bucket_name_in, 'is already exists.')
     else:
         bucket = storage_client_in.create_bucket(bucket_name_in)
-        print('newly created', bucket_name_in)
+        print('newly created ', bucket_name_in)
 
+#        
 def directory_existense_confirmation(storage_client_in, bucket_name_in, band_in):
     file_name = '../Const/' + TIMECARD 
     destination_blob_name = band_in + '/' + TIMECARD    
@@ -105,19 +149,21 @@ if __name__ == '__main__':
     # get arguments
     args = sys.argv
     if 5 <= len(args):
-        BAND  = args[1]
-        SCALE = int(args[2])
-        SDATE = args[3]
-        EDATE = args[4]
-        print(BAND, SCALE, SDATE, EDATE)
+        POLY  = args[1] 
+        BAND  = args[2]
+        SCALE = int(args[3])
+        SDATE = args[4]
+        EDATE = args[5]
+        print(POLY, BAND, SCALE, SDATE, EDATE)
     else:
         print('too few arguments.')
         print('usage')
         print('$pyrhon S2ImageDownloader.py [arg1] [arg2] [arg3] [arg4]')
-        print('  arg1: BAND : ex)B8A')
-        print('  arg2: scale: ex)10')
-        print('  arg3: SDATE: ex)2022-01-01')
-        print('  arg4: EDATE: ex)2022-12-31')
+        print('  arg1: POLY : ex)./')
+        print('  arg2: BAND : ex)B8A')
+        print('  arg3: scale: ex)10')
+        print('  arg4: SDATE: ex)2022-01-01')
+        print('  arg5: EDATE: ex)2022-12-31')
         quit()
 
 
@@ -132,8 +178,11 @@ if __name__ == '__main__':
     ee.Initialize(credentials)
 
     # AOI definition
-    region=ee.Geometry.Rectangle([130.387545,33.012406, 130.497408,32.898326])
-        
+    min_lon, max_lat, max_lon, min_lat = get_geom_rect(POLY)
+    print(min_lon, max_lat, max_lon, min_lat)    
+    region=ee.Geometry.Rectangle([min_lon, max_lat, max_lon, min_lat])
+
+
     # get image cpllection
     S2_Image  = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED').filterBounds(region).filterDate(parse(SDATE),parse(EDATE)).map(cloudMasking).select([BAND])
     ImageList = S2_Image.toList(300)
