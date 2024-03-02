@@ -12,6 +12,8 @@ def check_crs(gdf):
 
 polygon = './Boundary_Nagasu-town.gpkg'
 
+#polygon = '/home/hiroakit/Research/devel/Satellite-Image-Downloader/Data/raw/Poly/Boundary_Giza_Pyramid.gpkg'
+
 gdf = gpd.read_file(polygon)
 
 assert check_crs(gdf), 'CRS os not defined.'
@@ -19,7 +21,8 @@ assert check_crs(gdf), 'CRS os not defined.'
 
 
 s = str(gdf['geometry'][0])
-
+print(s)
+quit()
 
 s = s.replace('MULTIPOLYGON ','')
 s = s.replace('(((',' ')

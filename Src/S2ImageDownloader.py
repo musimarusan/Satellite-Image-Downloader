@@ -28,8 +28,9 @@ def check_crs(gdf):
         return False
     return True
 
-# get geometry
-def get_geom_rect(polygon_in):
+
+# get geometry from MULTIPOLYGON
+def get_geom_rect(polytype, polygon_in):
 
     # open and check polygon
     gdf = gpd.read_file(polygon_in)
@@ -37,13 +38,20 @@ def get_geom_rect(polygon_in):
 
     # extract polygon
     s = str(gdf['geometry'][0])
-    s = s.replace('MULTIPOLYGON ','')
-    s = s.replace('(((',' ')
-    s = s.replace(')))','')
-    lonlat = s.split(',')
+    
+    if polytype == 'MULTI':    
+        s = s.replace('MULTIPOLYGON ','')
+        s = s.replace('(((',' ')
+        s = s.replace(')))','')
+    elif polytype == 'MONO':
+        s = str(gdf['geometry'][0])
+        s = s.replace('POLYGON ','')
+        s = s.replace('((',' ')
+        s = s.replace('))','')
 
+    lonlat = s.split(',')        
+        
     nplonlat = np.array(lonlat)
-
     lon = []
     lat = []
     for coord in lonlat:
@@ -117,7 +125,7 @@ def ExportIteration(imageList, scale_in, bucket_in, band_in):
             print(ii, filename, 'already exists.')
         else:
             ImageExport(image_in, description_in, scale_in, region_in, fileformat_in, bucket_in, band_in)
-            print(ii, filename, 'has been created.')
+            print(ii, filename, 'as queued.')
             
     print('finish:', bucket_in)
 
@@ -166,7 +174,9 @@ if __name__ == '__main__':
         print('  arg5: EDATE: ex)2022-12-31')
         quit()
 
-
+    # BAND
+    #BAND = ["B1","B2","B3","B4","B5","B6",,"B7","B8","B8A","B9","B11","B12"]
+        
     # create timecard
     f = open('../Const/'+ TIMECARD, 'w')   
     dt_now = datetime.datetime.now()
@@ -178,13 +188,15 @@ if __name__ == '__main__':
     ee.Initialize(credentials)
 
     # AOI definition
-    min_lon, max_lat, max_lon, min_lat = get_geom_rect(POLY)
+#    POLYTYPE = 'MONO'
+    POLYTYPE = 'MULTI'
+    min_lon, max_lat, max_lon, min_lat = get_geom_rect(POLYTYPE, POLY)
     print(min_lon, max_lat, max_lon, min_lat)    
     region=ee.Geometry.Rectangle([min_lon, max_lat, max_lon, min_lat])
 
 
     # get image cpllection
-    S2_Image  = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED').filterBounds(region).filterDate(parse(SDATE),parse(EDATE)).map(cloudMasking).select([BAND])
+    S2_Image  = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED').filterBounds(region).filterDate(parse(SDATE),parse(EDATE)).map(cloudMasking).select(["B1","B2","B3"])
     ImageList = S2_Image.toList(300)
         
     # comfirm bucket existense
